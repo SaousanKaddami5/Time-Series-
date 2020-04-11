@@ -1,0 +1,417 @@
+---
+title: "ARMA Modeling"
+output:
+  html_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+
+```{r setup,include=FALSE, eval=TRUE}
+knitr::opts_chunk$set(echo = TRUE, eval=TRUE)
+```
+
+# Autocovariance function, spectral density and empirical estimation #
+
+Let $X_1,\dots,X_N$ be observations of weakly stationary time series $(X_t)$ with mean $\mu$ and autocovariance function $\gamma$. 
+
+The empirical mean and the empirical autocovariance function are defined by
+  \begin{align*}
+    \hat{\mu}_N &= N^{-1} \sum_{t=1}^N X_t \\
+    \hat{\gamma}_{N}(h)& = 
+    \begin{cases}
+ \displaystyle     N^{-1}\sum_{t=\max(1,1-h)}^{\min(N,N-h)}(X_{t+h}-\hat{\mu}_N)\overline{(X_{t}-\hat{\mu}_N)} & \text{ if } h \in \{-N+1,\cdots,N-1\}\\
+0 & \text{ otherwise } .
+    \end{cases}
+  \end{align*}
+Let us define the periodogram by
+$$
+I_N(\lambda) = (2 \pi N)^{-1} \left\vert  \sum_{t=1}^N (X_t - \hat{\mu}_n) \; \mathrm{e}^{-\mathrm{i} t \lambda}\right \vert^2\qquad\lambda\in\mathbb{R} \; .
+$$
+It is a $(2\pi)$-periodic non-negative function.
+
+**1) Show that, for all lags $h\in\mathbb{Z}$,
+$$
+    \hat{\gamma}_{N}(h)= \int_0^{2\pi}  \mathrm{e}^{\mathrm{i} h \lambda}\;I_N(\lambda) \; \mathrm{d}\lambda\;.
+$$
+$$
+    \hat{\gamma}_{N}(h)= \int_0^{2\pi}  \mathrm{e}^{\mathrm{i} h \lambda}\;I_N(\lambda) \; \mathrm{d}\lambda\;
+    \\ =  \int_0^{2\pi}  \mathrm{e}^{\mathrm{i} h \lambda}\; (2 \pi N)^{-1} \left\vert  \sum_{t=1}^N (X_t - \hat{\mu}_n) \; \mathrm{e}^{-\mathrm{i} t \lambda}\right \vert^2\; \mathrm{d}\lambda\;
+      \\ =  (2 \pi N)^{-1} \int_0^{2\pi}  \mathrm{e}^{\mathrm{i} h \lambda}\; \sum_{t=1}^N (X_t - \hat{\mu}_n) \; \mathrm{e}^{-\mathrm{i} t \lambda}\; \sum_{t=1}^N \overline {(X_t - \hat{\mu}_n) \mathrm{e}^{-\mathrm{i} t \lambda}} \mathrm{d}\lambda\;
+      \\ =  (2 \pi N)^{-1} \int_0^{2\pi} \sum_{t=1}^N (X_t - \hat{\mu}_n) \; \mathrm{e}^{\mathrm{-i} (t-h) \lambda}\; \sum_{t=1}^N \overline {(X_t - \hat{\mu}_n) }\mathrm{e}^{\mathrm{i} t \lambda} \mathrm{d}\lambda\;
+      \\ we \; do \; a \; change \; of \; variable : \; k = t-h
+      \\ =  (2 \pi N)^{-1} \int_0^{2\pi} \sum_{k=1-h}^{N-h} (X_{k+h} - \hat{\mu}_n) \; \mathrm{e}^{\mathrm{-i} k \lambda}\; \sum_{t=1}^N \overline {(X_t - \hat{\mu}_n) }\mathrm{e}^{\mathrm{i} t \lambda} \mathrm{d}\lambda\;
+      \\ =  (2 \pi N)^{-1} \int_0^{2\pi} \sum_{t=1}^N \sum_{k=1-h}^{N-h} (X_{k+h} - \hat{\mu}_n)\overline {(X_t - \hat{\mu}_n) } \; \mathrm{e}^{\mathrm{i} (t-k) \lambda}\;   \mathrm{d}\lambda\;
+       \\ =  (2 \pi N)^{-1} \int_0^{2\pi}  \sum_{t=\max(1,1-h)}^{\min(N,N-h)} (X_{t+h} - \hat{\mu}_n)\overline {(X_t - \hat{\mu}_n) } \;  \mathrm{d}\lambda\;
+      \\ =  (2 \pi N)^{-1}  \sum_{t=\max(1,1-h)}^{\min(N,N-h)} (X_{t+h} - \hat{\mu}_n)\overline {(X_t - \hat{\mu}_n) } \; \int_0^{2\pi}  \mathrm{d}\lambda\;
+       \\ = N^{-1}  \sum_{t=\max(1,1-h)}^{\min(N,N-h)} (X_{t+h} - \hat{\mu}_n)\overline {(X_t - \hat{\mu}_n) } \; 
+$$
+
+What do you conclude about $\hat{\gamma}_{N}$ ?** [Hint: use the Herglotz theorem]
+
+
+$$Since \; \hat{\gamma}_{N} \; is \;defined \;as  \int_0^{2\pi}  \mathrm{e}^{\mathrm{i} h \lambda}\;I_N(\lambda) \; \mathrm{d}\lambda \; and \; I_N(\lambda)\; 
+\\ is \;non-negative\; and\; defined\; on\; [0,2\pi] , \;we\; can\; conclude\; by\; Herglotz\; theorem\; 
+\\that\; \hat{\gamma}_{N} \;is  Hermitian,\; symetric\; non-negative\; and\; definite.$$
+
+
+**2) Generate an i.i.d. $\mathcal{N}(0,1)$ sequence of length $2^{8}$ and plot the empirical autocorrelation function $\hat{\gamma}_{N}(h)/\hat{\gamma}_{N}(0)$ using** 
+*acf()*
+```{r}
+y <- rnorm(256,mean=0,sd = 1) 
+plot(y, main = 'Sequence generated',type ='l')
+```
+
+```{r}
+autocor <- acf(y, plot = FALSE)
+plot(autocor, main = 'Autocorrelation function of the generated sequence')
+```
+
+ 
+# Levinson-Durbin Algorithm #
+
+**3) Code the Levinson-Durbin algorithm into a R function taking **
+
+inputs: $\gamma(0),\dots,\gamma(p)$ 
+
+**and returning**
+
+outputs: $\phi_{k,k}$ and $\sigma_k^2$ for $k=1,\dots,p$ and $\phi_{k,p}$ for $k=1,\dots,p$.
+
+```{r}
+algoLD <- function(gamma, p){
+  phi <-matrix(0,p,p)
+  k <- matrix(0,1,p)
+  sig <-matrix(0,1,p)
+  
+  #initialization
+  phi[1,1] <- -gamma[2]/gamma[1]
+  k [1] <- phi[1,1]
+  sig[1] <- gamma[1]*(1-k[1]^2)
+  
+  for (m in 2:p-1) {
+    s <- 0
+    for (j in 1:m){
+      s <- s + phi[j,m]*gamma[m+1-j]
+    }
+    
+    k[m+1] <- -(1/sig[m])*(gamma[m+1]-s)
+    
+    
+    sig[m+1] <- sig[m]*(1-k[m+1]^2)
+ 
+    phi[m+1,m+1] <- k[m+1] 
+  
+    
+    for (i in 1:m){
+      phi[i,m+1] <- phi[i,m]-k[m+1]*Conj(phi[m+1-i,m])
+    }
+
+  }
+  newList <- list("kapa" = k, "sigma2" = sig, "phi" = phi )
+  return (newList)
+}
+```
+
+**4) Test your code on the previously generated white noise, first using the true auto-covariance and then the empirical one, for $p=10$.**
+
+```{r}
+#let's try first for the true auto-covariance and p= 10
+z <- matrix(0,10)
+z[1] <- 1
+fLD <- algoLD(z, 10)
+print(fLD)
+```
+
+```{r}
+#Then let's do it for the empirical auto-covariance and p= 10
+autocov <- acf(y, plot = FALSE,type = "covariance" )
+fLD <- algoLD(autocov$acf, 10)
+print(fLD)
+```
+
+
+**5) What can we say about the sequence  $(\sigma_k^2)_{k=1,\dots,p}$ ? Compare the theoretical and empirical cases in the previous example.**
+
+For the true auto-covariance, the Levinson-Durbin algorithm provides a vector of ones $(\sigma_k^2)$ of size 10 (as we chose p=10). As we are working on a Normal distribution with a variance 1, this result is not surprising 
+
+For the empirical auto-covariance, the Levinson-Durbin algorithm provide a decreasing vector for $(\sigma_k^2)$ of size 10 (as we chose p=10). The first value is around 1 and last value is below 0. As we are in an empirical case, we tried to approximate the auto-covariance, explaining why we are around 1 and not exactly equal to 1.
+
+
+**6) Load the time series in the file ** https://perso.telecom-paristech.fr/roueff/edu/tsfd/data/test.Rdata
+
+
+```{r}
+load(url('https://m2:map658@perso.telecom-paristech.fr/roueff/edu/tsfd/data/test.Rdata'))
+```
+
+**Look at its (empirical) auto-correlations and partial auto-correlations up to lag 10. 
+What order would you choose for an MA model? For an AR model ? In the latter case, use the Levinson-Durbin algorithm that you coded to estimate the parameters of the model. Compare with the built-in**  *arima()* 
+
+```{r}
+cor <- acf(x,lag =10, plot =TRUE ,type = "correlation" )
+```
+
+
+```{r}
+partial <- pacf(x,lag =10, plot =TRUE)
+```
+
+For the MA model, we can see that in the auto-correlation graph, the values are lower than $\espilon$ since lag 3, so we would choose an order q = 6.
+
+For an AR model, we can see that the partial auto-correlation graph are lower than $\espilon$ since lag 3, we would choose an order p = 3.
+
+```{r}
+autocorx <- pacf(x, plot = FALSE,type = "correlation" )
+fLD <- algoLD(autocorx$acf, 10)
+print(fLD)
+```
+
+```{r}
+arima(x, order = c(3,0,0))
+```
+
+
+
+# S&P$500$ Data  and  MA Modeling #
+
+In this part we fit a MA model to the annual returns, computed every month. 
+This model is then used for prediction. 
+
+**7)  Load the time series from the file ** https://perso.telecom-paristech.fr/roueff/edu/tsfd/data/spmonthly-1950-2015.Rdata
+
+```{r}
+load(url('https://m2:map658@perso.telecom-paristech.fr/roueff/edu/tsfd/data/spmonthly-1950-2015.Rdata'))
+```
+
+
+**Look at the downloaded SP500 time series using **
+
+```{r}
+plot(as.POSIXct(mdates),sptsm,type='l',xlab='Date',ylab='SP500')
+```
+
+**8) What is the frequency of the corrersponding time series ?  Let $P_t$,
+	$t=1,2,\dots$ denote the samples of this time series. Let
+	$R_t=\log(P_t/P_{t-1})$ be the associated log returns. Compute the
+	autocorrelation function of the log returns and comment.**
+	
+The frequency of the time serie is monthly.
+
+```{r}
+#let's define R_t
+r <- numeric(784)
+for (t in 2:784){
+  r[t] <- log(sptsm[t]/sptsm[t-1])
+}
+
+autocorsp <- acf(r,lag =10, plot = TRUE)
+
+```
+We notice that there is low auto-correlation associated to the log-returns as their values are very low.
+
+
+Next, we consider the time series $S_t$ of annual returns, defined by
+$$
+S_t=(P_t-P_{t-12})/P_{t-12} \;.
+$$
+We propose to model this time series using a MA($q$) model of the form
+$$
+ S_t=\sum_{k=1}^q \theta_k \epsilon_{t-k} + \epsilon_t\;,
+$$
+where $(\epsilon_t)$ is the innovation process of $(S_t)$. 
+
+**9) Justify that $S_t$ can be roughly approximated as
+$$
+S_t\approx\sum_{k=0}^{11} R_{t-k} \;.
+$$
+
+$$
+\sum_{k=0}^{11} R_{t-k} = \sum_{k=0}^{11} log(P_{t-k}) - log(P_{t-k-1}) 
+\\= log(P_{t}) - log(P_{t-12})
+\\ = log(P_{t}/P_{t-12} +1 - 1) 
+\\= log(P_{t}/P_{t-12} +1 - 1)    
+\\  since \; log(1+x) \approx x 
+\\ \approx  P_{t}/P_{t-12} - 1
+\\ \approx  \frac {P_{t} - P_{t-12}}{P_{t-12} }
+$$
+
+
+Which order $q$ does this suggest for modeling the time series $(S_t)$ using a MA$(q)$ ?**
+
+Since the form given above by the previous estimation, we can assume that the order q = 11
+
+**10) Use ** *arima()* **to estimate the MA coefficients and the innovation variance $\sigma^2$ of a MA($q$) model with $q$ chosen according to the previous question.**
+
+```{r}
+s <- numeric(784)
+for (i in 12:784 ){
+  s[i] <- 0
+  for (j in 0:11) {
+    s[i] <- s[i] + r[i-j]
+  }
+  
+}
+arima(s, order = c(0,0,11))
+```
+
+
+**11)  Use** *predict()* **to test the quality of the 1 ahead prediction of the model for the last 200 observations of $S_t$. Compare with a fitted MA(1) model.**
+
+```{r}
+myfit <- arima(s,order=c(0,0,11))
+subfit <- arima(s[1:(length(s)-200)],order=c(0,0,11),fixed=myfit$coef)
+pred <-predict(subfit,n.ahead=200)
+```
+
+```{r}
+plot(c(s,pred$pred),type="l")
+```
+
+```{r}
+myfit <- arima(s,order=c(0,0,1))
+subfit <- arima(s[1:(length(s)-200)],order=c(0,0,1),fixed=myfit$coef)
+pred2 <-predict(subfit,n.ahead=200)
+plot(c(s,pred$pred),type="l")
+lines(c(s,pred2$pred),type="l", col='green')
+```
+
+The MA(1) model converges quicker than the MA(11).
+
+## Some hints ##
+
+The object argument in *predict()* is the output of a *fit()*. Hence a new fit
+is necessary each time the learning data set changes. However, to avoid
+reprocessing the estimation of parameters (which can be numerically costly) one
+can use *fixed* parameters. Here is an exemple, where an ARMA(0,4) is fitted
+on the overall time series *r* (of length $\gg 10$) and used to predict the last sample from the
+previous ones:
+
+```{r eval= FALSE}
+myfit <- arima(r,order=c(0,0,4))
+subfit <- arima(r[1:(length(r)-10)],order=c(0,0,4),fixed=myfit$coef)
+predict(subfit,n.ahead=10)
+```
+
+One can use *forecast()* from the forecast package instead of predict, which works similarly but with added features.
+Continuing on the previous example: (install.packages('forecast', dependencies = TRUE))
+
+```{r,eval=FALSE}
+#plot(forecast(subfit,h=10))
+```
+
+# VIX data and AR modeling #
+
+In this part we work on the VIX volatility index. 
+We study the AR$(p)$ modeling of this series, denoted by $Y_t$, namely, up to a demeaning constant,
+$$
+ Y_t=\sum_{k=1}^p \phi_k Y_{t-k} + \epsilon_t
+$$
+where $\epsilon_t$ are the innovations.
+
+
+**12)  Load the time series from the file** 
+
+https://perso.telecom-paristech.fr/roueff/edu/tsfd/data/vix-2011-2014.Rdata
+
+**The data starts in January, 3 2011 and ends in January, 3 2014, with a
+   sample every working day. Compare the trajectory to that of the SP500 index.**
+   
+```{r}
+load(url('https://m2:map658@perso.telecom-paristech.fr/roueff/edu/tsfd/data/vix-2011-2014.Rdata'))
+
+```
+
+```{r}
+plot(vix, type='l', col='blue')
+```
+
+```{r}
+plot(sptsm,type='l',ylab='SP500')
+```
+SP is increasing through time, withe some small crashs. VIX has been increasing then dramatically decreased through time.
+
+**13) Compute the empirical partial autocorrelation fuction. Which order $p$ does it suggest for AR($p$) modelling of this data ?**
+```{r}
+autocorvix <- pacf(vix,lag =20, plot = TRUE)
+```
+
+The corresponding parital auto-correlation funtion suggest an order of 8 for AR(p)
+**14) Fit the corresponding model.**
+
+```{r ,eval = FALSE}
+myfit <- arima(vix,order=c(8,0,0))
+subfit <- arima(vix[1:(length(vix)-200)],order=c(8,0,0),fixed=myfit$coef)
+```
+
+**15) Test the quality of the 1 ahead prediction of the model for the last 200 observations of $Y_t$. Compare with a fitted AR(1) model.**
+```{r}
+predvix <- predict(subfit,n.ahead=200)
+```
+
+```{r}
+plot(c(vix,predvix$pred),type="l")
+```
+
+```{r}
+myfit <- arima(vix,order=c(1,0,0))
+subfit <- arima(vix[1:(length(vix)-200)],order=c(1,0,0),fixed=myfit$coef)
+predvix1 <- predict(subfit,n.ahead=200)
+
+plot(c(vix,predvix$pred),type="l")
+lines(c(vix,predvix1$pred),type="l", col='green')
+```
+We notice that ARMA(1) has a lower increasing slope than ARMA(8).
+
+# VIX data and ARMA modeling #
+We now consider an ARMA$(p,q)$ model, namely, up to a demeaning constant,
+$$
+  Y_t-\sum_{k=1}^p \phi_k Y_{t-k}=\sum_{k=1}^q \theta_k \epsilon_{t-k} + \epsilon_t
+$$
+where $\epsilon_t$ are the innovations.
+
+
+**16) The AIC criterion is defined by, up to some normalizing constant: 
+$$
+\mathrm{AIC}(p,q) \sim \log( \hat{\sigma}(p,q) ) +2(p+q)/T \;, 
+$$ 
+where $T$ is the
+length of the time series, and $\hat{\sigma}(p,q)$ is the innovation variance
+of the fitted ARMA$(p,q)$ model. This criterion is an output of** *arima()*
+**command. Determine $(p,q)\in\{0,1,\dots,5\}^2$ that minimizes the AIC
+criterion.**
+```{r}
+best_aic = arima(vix, c(0,0,0))$aic
+p_best = 0
+q_best =0
+for (p in 0:5){
+  for (q in 0:5) {
+    arim <- arima(vix, order=c(p,0,q))$aic
+    if (arim < best_aic) {
+      p_best <- p
+      q_best <- q
+      best_aic <- arim 
+    }
+  }
+}
+print(p_best)
+print(q_best)
+```
+The best p is 4 and the best q is 5.
+
+**17)  Test the quality of the 1 ahead prediction of the model for the last 200 observations of $Y_t$. Compare with the previous AR model.**
+```{r}
+myfit <- arima(vix,order=c(4,0,5))
+subfit <- arima(vix[1:(length(vix)-200)],order=c(4,0,5),fixed=myfit$coef)
+predvix45 <- predict(subfit,n.ahead=200)
+```
+
+```{r}
+plot(c(vix,predvix45$pred),type="l", ylab= 'pred')
+lines(c(vix,predvix$pred),type="l", col='red')
+```
+
+## Tiebraker open question ##
+
+**18) Use your favorite machine learning approach to build a predictor of $Y_{t}$ given its past, without usung the last 200 observations, kept aside as a test dataset. Compare the obtained predictor with the ARMA predictor on the test dataset. **

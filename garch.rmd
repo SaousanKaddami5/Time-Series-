@@ -1,0 +1,256 @@
+---
+title: "GARCH & EGARCH modeling of log returns"
+output:
+  html_document: default
+  pdf_document: default
+  toc : true
+---
+---
+output:
+  word_document:
+    pandoc_args: ["-Fpandoc-crossref"]
+---
+
+```{r setup, include=FALSE, eval=TRUE}
+knitr::opts_chunk$set(echo = TRUE, eval=TRUE)
+```
+# GARCH modelling
+We recall that a GARCH(p,q) process is defined as : 
+$$
+r_t = \eta_t \sigma_t,
+$$
+$$
+\sigma_t^2 = a_0 + \sum_{k=1}^p a_k r_{t-k}^2 + \sum_{k=1}^q b_k \sigma_{t-k}^2,
+$$
+where $\eta_t \stackrel{i.i.d}{\sim} \mathcal{N}(0,1)$, $a_0>0$ and $a_1,...,a_p,b_1,...,b_q \geq0$. 
+Let $p=q=1$ and suppose that $a_1 + b_1 < 1$, we know that a weakly stationary GARCH(1,1) has zero mean and finite variance  :
+$$
+\text{Var}(r_t) = \frac{a_0}{1 - (a_1 + b_1)}.
+$$
+Suppose now that : 
+$$
+b_1^2+2 a_1 b_1 + 3 a_1^2 <1,
+$$
+then $\mathbb{E}[\sigma_t^4]<\infty$ and we can compute the kurtosis of $r_t$ : 
+$$
+\mathcal{K} := \frac{\mathbb{E[r_t^4]}}{(\mathbb{E[r_t^2])^2}} = 3 + \frac{6a_1^2}{1-(b_1^2+2a_1 b_1 + 3a_1^2)}.
+$$
+**1) Simulate a GARCH(1,1) process of size $N=500$. Plot the time series using the function ts.plot(). What happens if the first inequality is not verified ? Return its variance, skewness and kurtosis. Compare with the formulas above.**
+
+Let $r_1, r_2,...,r_N$ be observations of a GARCH(1,1) process. 
+
+```{r}
+#garch(1,1) where defualt for alpha is 0.1 and beta 0.8, which satisfies the inequality above
+r=garch.sim(alpha=c(0.1, 0.1), beta=0.8, n= 500)
+plot.ts(r, ylab="GARCH")
+
+```
+If $a_1 + b_1 < 1$ is not verified, the variance is either infinite or negative which leads to a definition problem hence the variance should be positive. The GARCH model generates NaN.
+
+```{r} 
+#comparison of the simulated vs the true variance
+simulated_variance = var(r)
+true_variance = 0.1/(1-(0.1+0.8))
+print(simulated_variance)
+print(true_variance)
+```
+```{r}
+#The simulated skewness
+simulated_skewness = skewness(r)
+print(simulated_skewness)
+```
+```{r}
+#comparaison of the simulated vs the true kurtosis
+simulated_kurtosis = kurtosis(r) +3 
+#as in R, the kurtosis function is defined as theorical_kurtosis-3
+
+true_kurtosis = 3+ ((6*0.1*0.1)/(1-(0.8*0.8+2*0.1*0.8+3*0.1*0.1) ))
+print(simulated_kurtosis)
+print(true_kurtosis)
+```
+Variance is really close, kurtosis is prety close.
+
+**2) Show that the (conditional) negated log likelihood for the GARCH(1,1) can be written as : **
+$$
+- L_n (\theta) = \frac{1}{2} \sum_{k=2}^{N}\left(\log(2\pi\sigma_k^2) + \frac{r_k^2}{\sigma_k^2}  \right).
+$$
+Since we have $ r_t = \eta_t \sigma_t$ and $$\sigma_t^2 = a_0 +  a_1 r_{t-1}^2 +  b_1 \sigma_{t-1}^2 $$
+
+As $\eta_t \stackrel{i.i.d}{\sim} \mathcal{N}(0,1)$, we can conclude that  
+$$ r_t \stackrel{i.i.d}{\sim} \mathcal{N}(0,\sigma_t^2)$$
+For computing the log-likelihood, we are interested by the joint probability $f(r_{1},..,r_{N}; \theta)$
+
+$$
+f(r_1,...,r_N; \theta) =  f(r_1;\theta)f(r_2,...,r_N\vert r_1 ;\theta) \\
+=f(r_1;\theta) \prod_{k=2}^N f(r_k \vert r_{k-1},...,r_{1}, ;\theta) \\
+=f(r_1;\theta) \prod_{k=2}^N f(r_k \vert r_{k-1}, ;\theta) \\
+ =f(r_1;\theta) \prod_{k=2}^N \frac{1}{\sqrt{2\pi\sigma_t^2}}\exp\left(-\frac{r_k^2}{2\sigma_k^2}\right)
+$$
+Taking the log of this fuction and droping the first term, we have : 
+$$
+- L(\theta) = - log (\prod_{k=2}^N \frac{1}{\sqrt{2\pi\sigma_k^2}}\exp\left(-\frac{r_k^2}{2\sigma_k^2}\right))\\
+= - \sum_{k=2}^{N} \left(-\frac{1}{2}\log(2\pi\sigma_k^2) - \frac{r_k^2}{2\sigma_k^2}  \right)\\
+= \frac{1}{2} \sum_{k=2}^{N}\left(\log(2\pi\sigma_k^2) + \frac{r_k^2}{\sigma_k^2}  \right).
+$$
+**3) Write a function *garchlogl()* that takes the GARCH parameters *(a0, a1, b1)* as inputs and returns the conditional negated log-likelihood. Simulate a GARCH(1, 1) with *a0 = 0.1, a1 = 0.2, b1=0.3,N=500* and use the function *optim()* to retrieve the parameters by minimizing the negated log-likelihood.**
+
+```{r}
+ N<- 500
+
+garchlogl <- function (param) {
+  a0 = param[1]
+  a1 = param[2]
+  b1 = param[3]
+  if(a1+b1 <1 && a1>0 && a0>0 && b1>0){
+    sigma2 <- matrix(0,N)
+    r <-garch.sim(alpha=c(a0, a1), beta=b1, n= N)
+    eta <- rnorm(n=1)
+    sigma2[1] <- (r[1]/eta)**2
+    negloglike <- 0
+    for (t in 2:N) {
+      sigma2[t]<- a0+ a1*r[t-1]*r[t-1] + b1*sigma2[t-1]
+      negloglike <- negloglike + log(2*pi*sigma2[t]+ (r[t]**2/sigma2[t]))
+    }
+    negloglike <- (1/2)*negloglike
+    return(negloglike)
+  }else{
+    return(1000)
+  }
+}
+
+init.par = c(a0 = 0.1, a1 = 0.2, b1=0.3)
+resultat = optim(init.par, garchlogl, NULL, method="BFGS")
+
+print(resultat$par)
+```
+
+# Analysis of the Default data set
+We start by loading some packages.
+```{r eval=FALSE}
+library(forecast) 
+library(rugarch)
+```
+
+
+## Description of the data
+**4) Import the data set 'gle.Rdata' and look at the data. **
+ 
+```{r}
+load(url('https://m2:map658@perso.telecom-paristech.fr/roueff/edu/tsfd/data/gle.Rdata'))
+summary(gle)
+```
+We denote by $P_t$ the open price time series and $r_t = \log(\frac{P_t}{P_{t-1}})$ the daily log-returns. 
+
+**5) Using the 'acf()' and 'pacf()' functions, plot the autocorrelation and partial autocorrelation for both $r_t$ and $r_t^2$. Comment. Is an ARMA model appropriate here ? Explain. **
+```{r}
+r <- numeric(1150)
+for (t in 2:1150){
+  r[t] <- log(gle$Open[t]/gle$Open[t-1])
+}
+```
+
+```{r}
+autocorr <- acf(r,lag =50, plot = TRUE)
+```
+```{r}
+pacorr <- pacf(r,lag =50, plot = TRUE)
+```
+```{r}
+autocor2 <- acf(r**2,lag =50, plot = TRUE)
+```
+```{r}
+pacorr2 <- pacf(r**2,lag =50, plot = TRUE)
+```
+In both cases, the auto-correlation and partial auto-correlation are very low. We won't use Arma model, it because it is not an i.i.d. process, otherwise ) would also beuncorrelated.  (à check)
+
+**6) Using both 'qqplot()' and 'qqline()', discuss the normality and symmetry of the log-returns distribution. Compare with a normal distribution.**
+```{r}
+qqnorm(r)
+qqline(r, col = "blue")
+```
+
+```{r}
+y <- rnorm(1000,mean=mean(r),sd = sd(r))
+qqnorm(y)
+qqline(y, col = "blue")
+```
+Looking at the Q-Q plot of the log returns we see that it is linear in  the middle between -2 and 2 and it looks almost symmetrical. There seem to be a deviations  at
+both end of the plot it is definitely not behaving like the normal
+distribution. shown above. 
+
+Using that $r_t^2 - \sigma_t^2$ is a weak white noise, we know that $r_t^2$ has an ARMA($p\vee q,q$) representation. 
+Up to a certain constant, the AIC criteria is defined as follows : 
+$$
+\text{AIC}(p,q) \sim \log( \hat{\sigma}(p,q) ) +2(p+q)/T,
+$$
+where $T$ is the number of observations, $\hat{\sigma}(p,q)$ the estimated variance for a model ARMA$(p,q)$. 
+
+**7)Using the function 'Arima()', give the order for a GARCH $(p,q)\in\{1,..5\}^2$ that minimizes the AIC criteria.**
+```{r}
+best_aic = arima(r**2, c(1,0,1))$aic
+p_best = 0
+q_best =0
+for (p in 1:5){
+  for (q in 1:5) {
+    arim <- arima(r**2, order=c(max(p,q),0,q))$aic
+    if (arim < best_aic)  {
+      p_best <- max(p,q)
+      q_best <- q
+      best_aic <- arim 
+    }
+  }
+}
+print(p_best)
+print(q_best)
+```
+
+**8)Estimate the coefficients of the GARCH model associated. Hint : look at the functions ugarchspec(), ugarchfit().**
+```{r}
+spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(4, 1)))
+ugarchfit <- ugarchfit(spec, r**2, out.sample = 0, solver = "solnp", solver.control = list())
+ugarchfit
+```
+
+**9)Using the function 'forecast()', test the quality of the 1 ahead prediction of the model for the last 200 observations of $r_t^2$ and give the standard deviation of the prediction error.**
+
+
+The forecast function is not recognized even if the package is successfully installed. 
+As you told us, I have skipped this question.
+
+
+**10)Proceed as before using this time the function 'ugarchforecast()'.**
+```{r}
+ugarchforecast(ugarchfit,  n.ahead = 200)
+```
+
+# Exponential GARCH
+In order to take into account possible assymetry effects, we introduce the following exponential GARCH model : 
+$$
+r_t = \eta_t \sigma_t  
+$$
+
+$$
+\log(\sigma_t^2 ) = a_0 + \sum_{k=1}^p  (a_k \eta_{t-k} + h_k(\eta_{t-k})) + \sum_{k=1}^q b_k \log(\sigma_{t-k}^2)
+$$
+where $h_k(\eta) = \gamma_k ( |\eta| - \mathbb{E} | \eta | )$ and $\eta_t \stackrel{i.i.d}{\sim} \mathcal{N}(0,1)$.
+
+
+**11)Using both functions 'ugarchspec()' and 'ugarchfit()' estimate an EGARCH model on the data (choose the same order as before).Which parameter of the EGARCH model gives an assymetrical distribution for the returns? Is this parameter signifiant for the data ? Comment.**
+
+```{r}
+espec <- ugarchspec(variance.model = list(model = "eGARCH", garchOrder = c(4, 1)))
+egarchfit <- ugarchfit(espec, r**2, out.sample = 0, solver = "solnp", solver.control = list())
+egarchfit
+```
+It's the parameter gamma that can simulates the asymetrical distribution fo the data.
+SIGNIFICANT OR NOT??? 
+
+**12) Repeat Q10) for this time the EGARCH model. Compare the prediction errors obtained for the GARCH and EGARCH. Comment.** 
+```{r}
+ugarchforecast(egarchfit,  n.ahead = 200)
+```
+
+The deviation of eGarch is a bit lower and converges faster than the Garch model.
+
+## Tiebreaker open question ##
+**13)What are the orders $p$ and $q$ returned when using Cross-Validation on both the previous GARCH and EGARCH models? Comment.**

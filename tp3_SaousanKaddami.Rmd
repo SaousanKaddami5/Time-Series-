@@ -1,0 +1,701 @@
+---
+title: "Fitting and forecasting realized volatilities of several market indices"
+output:
+  html_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+
+```{r setup,include=FALSE, eval=TRUE}
+knitr::opts_chunk$set(echo = TRUE, eval=TRUE)
+
+```
+
+
+# Spectral analysis on a bivariate time series #
+
+
+## Raw analysis ##
+
+We consider two time series derived fom the *realized volatility* of two indices: FTSE and SP500, denoted in the following by $Y_t(1)$ and $Y_t(2)$. 
+Details about the data can be found here:
+
+ http://realized.oxford-man.ox.ac.uk
+
+We first analyze the joint second-order statistics of the two time series and
+then propose two bivariate dynamic linear models for them, and compare their
+predictive performence.
+
+
+**1) Load the data in the file ** https://perso.telecom-paristech.fr/roueff/edu/tsfd/data/realizedvolatility.Rdata
+
+```{r, eval=TRUE}
+load(url('https://m2:map658@perso.telecom-paristech.fr/roueff/edu/tsfd/data/realizedvolatility.Rdata'))
+```
+
+Apply the following command to have a quick look on the two time series.
+
+```{r, eval=TRUE}
+op <- par(mfrow=c(2,1))
+plot(as.POSIXct(volsf$Date),volsf$FTSE,type='l',xlab='Date',ylab='FTSE RV')
+plot(as.POSIXct(volsf$Date),volsf$SPX,type='l',xlab='Date',ylab='SP500 RV')
+par(op)
+```
+From now on, we will actually work with the log volatility:
+
+```{r, eval=TRUE}
+vollog <- data.frame(FTSE=log(volsf$FTSE),SPX=log(volsf$SPX))
+vollog <- cbind(volsf[,'Date',drop=FALSE],vollog)
+
+op <- par(mfrow=c(2,1))
+plot(as.POSIXct(vollog$Date),vollog$FTSE,type='l',xlab='Date',ylab='Log FTSE RV')
+plot(as.POSIXct(vollog$Date),vollog$SPX,type='l',xlab='Date',ylab='Log SP500 RV')
+par(op)
+```
+
+**Have a look at their autocorrelation functions as well as their cross
+  autocorrelation function (use ** *acf()* **and** *ccf()* **) and comment. **
+```{r, eval=TRUE}
+acf (vollog$SPX)
+```
+```{r, eval=TRUE}
+acf (vollog$FTSE)
+```
+```{r, eval=TRUE}
+ccf (vollog$SPX,vollog$FTSE, lag.max=30)
+```
+** We notice that the two time series SP500 and FSTE are highly cross correlated, namely in between the lags -10 and 10, with a cross correlation > 0.4, which means that the two series have a high level of correlation **
+```{r, eval=TRUE}
+ccf (vollog$FTSE,vollog$SPX)
+```
+
+**2) Draw the periodograms $I_N^{Y(1)}(\lambda)$ and $I_N^{Y(2)}(\lambda)$ from the $N$
+  obserations of $Y(1)$ and $Y(2)$, for $\lambda=2\pi k/N$ with $k=1,\dots,[N/2]$,
+  computed using *fft()*. Display the periodograms with a log scale in the $y$ axis
+  by adding the argument** *log='y'* **in the** *plot()* **command**.
+  
+```{r, eval=TRUE}
+library("GeneCycle")
+
+
+N = length(volsf$FTSE)
+I_1 = abs(fft(volsf$FTSE)/sqrt(N))^2
+## Scale periodogram
+P = (4/N) * I_1  ## scaled periodogram
+f = (0:floor(N-1))/N
+plot(f, I_1,log='y',type ='l',xlab = "frequency",  ylab = "Periodogram",main="Periodogram of FTSE")
+
+```
+```{r, eval=TRUE}
+library("GeneCycle")
+
+
+N = length(vollog$SPX)
+I_2 = abs(fft(volsf$SPX)/sqrt(N))^2
+## Scale periodogram
+P = (4/N) * I_2  ## scaled periodogram
+f = (0:floor(N-1))/N
+plot(f, I_2,log='y',type ='l',xlab = "frequency",  ylab = "Periodogram",main="Periodogram of SP500")
+
+```
+
+## Smoothed periodogram ##
+	
+Periodograms are not consistent estimators of the spectral densities. To obtain
+consistent estimators, one needs to smooth them over frequencies.
+  
+**3) We must first choose the shape of the smoothing kernel. Here are some examples of kernels, which share the same discrete support $\{-150,\dots,0,\dots,150\}$ :**
+
+```{r, eval=FALSE}
+op <- par(mfrow=c(3,1))
+plot(kernel("daniell", c(150)))
+plot(kernel("daniell", c(100,50)))
+plot(kernel("daniell", c(70,50,30)))
+par(op)
+```
+
+```{r, eval=TRUE}
+op <- par(mfrow=c(3,1))
+k = kernel("daniell", c(9, 9, 9))
+smooth.spec <- spec.pgram(vollog$FTSE, kernel = k, taper = 0)
+smooth.spec <- spec.pgram(vollog$SPX, kernel = k, taper = 0)
+sp <- spectrum(cbind(vollog$FTSE,vollog$SPX),kernel=kernel("daniell", c(70,50,30)))
+```
+```{r, eval=TRUE}
+op <- par(mfrow=c(3,1))
+k= kernel("daniell", c(150))
+sp <- spectrum(cbind(vollog$FTSE,vollog$SPX),kernel=k)
+k_2= kernel("daniell", c(100,50))
+sp1 <- spectrum(cbind(vollog$FTSE,vollog$SPX),kernel=k_2)
+k_3 = kernel("daniell", c(70, 50, 30))
+sp2 <- spectrum(cbind(vollog$FTSE,vollog$SPX),kernel=k_3)
+```
+
+
+One can use such kernels to smooth the raw periodogram previously obtained,
+that is, an estimate of the spectral density is obtained by averaging the
+periodogram around each frequency. This can be done as follows :
+
+
+
+**Discuss the results obtained with kernels of various support lengths (or *bandwidth*).** 
+
+We notice that the choice of Smoothing Kernel has an impact on the Smoothed Periodogram : 
+- With the first Kernel, Daniel(150), as we applied the smoothing algorithm with one 150 pass, we certainly have a smoother function than the raw periodogram. Yet, we notice that the curve is uneven
+- When smoothing the function with Daniel(100,50), we notice that the curve is much smoother, which makes the noise reduction visibly greater than the one pass case. Actually, the smoothed result was smoothed again. 
+- When smoothing the function through three passes, Daniel (70,50,30), we notice a greater noise reduction as compared to the one pass. However, there is only a slight to impeceptible improvement as compared to the two passes case.
+
+
+**4)Compare with the *raw* periodograms obtained previously.**
+
+The first thing we notice when comparing the smoothed periodograms to the raw ones, is the noise reduction. Actually, smoothing reduces the noise in both of the signals. We also applied smoothing operations more than once: that is, the previously-smoothed signal was smoothed again. In this case of high-frequency noise in the signal, it seemed to improve the result. 
+
+The second thing we notice is that the larger the smoothing, the greater the noise reduction, but also the greater the possibility that the signal will be distorted by the smoothing operation, which would lead to loss of information. 
+
+[Warning: the spectra computed by the default method in *spectrum()* are not normalized using the standard time series convension but the signal processing one. In the time series literature, one usually defines the spectral density $f$ so that 
+
+
+$$ 
+\gamma(h)=\int_{-\pi}^{\pi}\mathrm{e}^{\mathrm{i}\lambda h}\;f(\lambda)\;\mathrm{d}\lambda 
+$$ 
+In the signal processing literature, one usually defines the \emph{power} spectral density $p$ so that 
+$$ 
+\gamma(h)=\int_{-1/2}^{1/2}\mathrm{e}^{2\mathrm{i}\pi\omega h}\;p(\omega)\;\mathrm{d}\omega 
+$$ 
+In other words, we have $p(\omega)=2\pi\;f(2\pi\omega)$.  ]
+
+
+**5) The default plot in the method *spectrum()* displays the estimated spectral densities of each time series in *volsf[,-1]*.
+However, the object returned from *spectrum()* also contains the estimated coherency:**
+
+```{r, eval=FALSE}
+plot(sp,plot.type = "coherency")
+```
+
+```{r, eval=FALSE}
+plot(sp2,plot.type = "coherency")
+```
+
+**Are the two time series more coherent at low frequencies, high frequencies or mid-frequencies ? How can this be interpreted ?** 
+
+We notice that the two series are coherent at low frequencies, and the coherency decreases as the frequency gets larger. This would indicate that for low frequencies, the two series are supposed to have a great correlation, which would one be sufficiant to predict the other. 
+
+
+# A dynamic linear model #
+
+Let us set $\mathbf{Y}_t=\begin{bmatrix}Y_t(1)&Y_t(2)\end{bmatrix}^T$.  Let
+ $X_t$ be a Gaussian AR(1) process with AR coefficient $\phi$
+and innovation variance $\sigma^2$.  We propose here to model the joint dynamics of the two time
+series $Y_t(1)$ and $Y_t(2)$ by the following equations:
+
+\begin{align*}
+\mathbf{Y}_t&= X_t \mathbf{a} +\boldsymbol{\epsilon}_t\;,
+\end{align*}
+
+where $\mathbf{a}$ is a column vector of the form $\begin{bmatrix}1&
+a\end{bmatrix}^T$ and $(\boldsymbol{\epsilon}_t)$ is a Gaussian bivariate white
+noise with covariance matrix Cov$(\boldsymbol{\epsilon}_0)=R$ which is independent of $(X_t)$. 
+
+**5) Recall the form of the spectral density $f^X$ of $(X_t)$. Express the
+  spectral densities $f^{Y(1)}$ and $f^{Y(2)}$ of $Y_t(1)$ and $Y_t(2)$ and the
+  coherency $C^Y$ between them using $f^X$, $a$ and $R$. Code an R function
+  returning $f^X(\lambda)$, $f^{Y(1)}(\lambda)$, $f^{Y(2)}(\lambda)$, and
+  $C^Y(\lambda)$, with inputs : a list of frequencies $\lambda$'s and the
+  parameters $\phi$, $\sigma$, $a$ and $R$. Plot the graph of $C$ for
+  $\phi=.5$, $\sigma=1$, $a=.5$ and $R$ equal to the identity matrix.**
+  
+**The density of $X_t$  :**
+
+As $X_t$ is a Gaussian AR(1) process with AR coefficient  $\phi$
+and innovation variance $\sigma^2$ , we know that its spectral density $f^X$ is defined by : 
+$f^X(\lambda)$= $ \frac{\sigma^2}{2\pi} $$ \frac{1}{|\Phi(e^{-i\lambda})|^2} $
+
+As $X_t$ is AR(1), we can further develop this equation, setting that : 
+
+$$\Phi(z)= 1 - \phi_1z$$ 
+
+
+where $$\phi_1\in IK$$
+
+In this case, we deduce that : 
+$$f^X(\lambda)=  \frac{\sigma^2}{2\pi} \frac{1}{|1 - \phi_1e^{-i\lambda}|^2} $$
+**The density of $Y_t$ : **
+
+To get the density of $Y_t$ , we need to compute the autocovariance function of $Y_t$ and then get the density, as we have : 
+$$ 
+\gamma(h)=\int_{-1/2}^{1/2}\mathrm{e}^{2\mathrm{i}\pi\omega h}\;p(\omega)\;\mathrm{d}\omega 
+$$ 
+
+$\gamma_Y(h) = \mathbf{a} Cov(X_{t+h},X_t) \mathbf{a}^T + R \mathbb{1}_{\{h=0\}}$ 
+
+The we know that $\epsilon$ and $X$ are independent processes and that $\epsilon$ is a gaussian white noise, we get that : 
+$$
+\gamma_Y(h) = \gamma_X(h) \mathbf{a} \mathbf{a}^T + R \mathbb{1}_{\{h=0\}}
+$$ 
+
+So, the spectral density matrix is given by : 
+
+$$ 
+A(\lambda)=\int_{-\pi}^{\pi}\mathrm{e}^{-\mathrm{i}\lambda h}\;\gamma_Y(h)\;\mathrm{d}\lambda 
+$$ 
+
+$$ A(\lambda) = f^X(\lambda)  \mathbf{a} \mathbf{a}^T +  \frac{R}{2 \pi}$$
+
+Let's set $R= \begin{pmatrix} r_{11} & r_{12}  \\ r_{21}  & r_{22}  \end{pmatrix}$
+
+Then, we will have the following results : 
+
+$$f^{Y_1}(\lambda) = A_{11}(\lambda) = f^X(\lambda)   + \frac{r_{11}}{2 \pi}$$
+
+$$f^{Y_2}(\lambda) = A_{22}(\lambda) = a^2 f^X(\lambda)   +  \frac{r_{22}}{2 \pi}$$
+
+Then, we know that : 
+
+$$
+C^{Y}(\lambda) = \frac{|A_{12}(\lambda)|}{\sqrt {f^{Y_1}(\lambda)f^{Y_2}(\lambda))}} = \frac{|a f^X(\lambda) + r_{12}| }{\sqrt {{a^2 f^X(\lambda)^2 + (r_{11} a^2 + r_{22}) f^X(\lambda) \frac{1}{2\pi} + \frac{r_{11} r_{22}}{4 \pi^2}}}}
+
+$$
+
+
+```{r, eval=TRUE}
+#coherency function
+coherency <-function(lambda_tab,phi, sigma, a, R) 
+{
+  
+  fx <- ((sigma ** 2) / (2 * pi)) * (1/(1 + (phi ^ 2) + 2 * phi * cos(lambda_tab)))
+  f_2 <- fx ** 2
+  b <- a**2
+  r1 <- R[1,1] / (2*pi)
+  r2 <- R[2,2] / (2*pi)
+  r3 <- R[1,2] / (2*pi)
+  coh <- (b * f_2 + 2* r3 * f + r3**2) / (b * f_2 + (r1 * b + r2) * f + r1 * r2)
+  return(sqrt(coh))
+}
+
+phi <- 0.5
+sigma <- 1
+a <- 0.5
+R <- matrix(1,2,2)
+R[1,2] <- 0
+R[2,1] <- 0
+
+n= length((vollog$SPX))
+frequency = 2*pi * (1/n) * (1:n)
+C <- coherency(frequency,phi,sigma,a,R)
+
+plot(x=frequency, y=C,xlab = 'Frequency', ylab = 'coherency value', type = "l", col=2, main="Coherency Function")
+
+```
+
+
+**6) How does the previous graph of $C$ evolve as $\phi$ increases towards 1 ?
+  What is the behavior of the coherency when $f^X(\lambda)\gg R$ ? How does
+  this make a plausible model for the data at hand ?**
+  
+  As $\phi$ increases towards 1, we know that for some frequencies, the density function of X : $f^X(\lambda)$ will tend to 0, which would lead to a null value in the denominator, and thus resulting in exploding coherency function. 
+  
+  When $f^X(\lambda)\gg R$, we then have a coherency that tends to 0. 
+  
+```{r, eval=TRUE}
+#coherency plot
+sigma <- 1
+a <- 0.5
+R <- matrix(1,2,2)
+R[1,2] <- 0
+R[2,1] <- 0
+C0 <- coherency(frequency,0.5,sigma,a,R)
+C1 <- coherency(frequency,0.99,sigma,a,R)
+C2 <- coherency(frequency,0.999,sigma,a,R)
+C_multi <- data.frame(lambda = frequency, phi_1 = C0, phi_2 = C1 ,phi_3 = C2 )
+par(mfrow=c(3,1))
+plot(x=C_multi$lambda,C_multi$phi_1,type='l',xlab='frequency',ylab='Coherency', main = 'phi = 0.5')
+plot(x=C_multi$lambda,C_multi$phi_2,type='l',xlab='frequency',ylab='Coherency',main= 'phi = 0.99')
+plot(x=C_multi$lambda,C_multi$phi_3,type='l',xlab='frequency',ylab='Coherency',main=' phi = 0.999')
+
+```
+
+```{r, eval=TRUE}
+#coherency plot
+sigma <- 1
+a <- 0.5
+R <- matrix(1,2,2)
+R[1,1] <- 0.2
+R[2,2] <- 0.2
+R[1,2] <- 0
+R[2,1] <- 0
+C0 <- coherency(frequency,0.5,sigma,a,R)
+R1 <- matrix(1,2,2)
+R1[1,1] <- 0.05
+R1[2,2] <- 0.05
+R1[1,2] <- 0
+R1[2,1] <- 0
+C1 <- coherency(frequency,0.5,sigma,a,R1)
+R2 <- matrix(1,2,2)
+R2[1,2] <- 0
+R2[2,1] <- 0
+C2 <- coherency(frequency,0.5,sigma,a,R2)
+C_multi <- data.frame(lambda = frequency, phi_1 = C0, phi_2 = C1,phi_3 = C2)
+par(mfrow=c(3,1))
+plot(x=C_multi$lambda,C_multi$phi_1,type='l',xlab='frequency',ylab='Coherency', main = 'r=0.2')
+plot(x=C_multi$lambda,C_multi$phi_2,type='l',xlab='frequency',ylab='Coherency',main= 'r = 0.05')
+plot(x=C_multi$lambda,C_multi$phi_3,type='l',xlab='frequency',ylab='Coherency',main='Normal R')
+
+```
+
+**Theorical Answer - Question 6:**
+
+**-For** $\phi$ : 
+    We notice that as we increase the value of $\phi$, we obtain a broader spectrum, with a rather flattened curve in the middle .  
+
+**-For** R :
+    As we choose an $f^X(\lambda)\gg R$ , we notice that we no longer get a 'gaussian shape' of the coherency function, we also notice that we get a larger spectrum, 
+    with much higher values for low frequencies. 
+    
+    
+**7) Show that this model is a *dynamic linear model* (DLM) and provide the
+  equations defining the dynamics of the model.**
+
+We know that $X_t$ is a Gaussian AR(1) process with AR coefficient  $\phi$
+and innovation variance $\sigma^2$. 
+
+So : $$X_{t} = \phi_1X_{t-1} + Z_t$$ , where $Z_t$ is a Gaussian $\mathcal{N}(0,\sigma^2)$ 
+
+Then, we have the observation equation : 
+$$Y_t= X_t a +\epsilon_t$$
+
+So, we have the DLM model : 
+
+- $\boldsymbol{State}$ $\boldsymbol{Equation}$ : $$X_{t} = \phi_1X_{t-1} + Z_t$$
+
+- $\boldsymbol{Observation}$ $\boldsymbol{Equation}$ : $$Y_t= X_t \mathbf{a} +\epsilon_t$$
+
+Where $\phi_1$ and $\mathbf{a}$ are the parameters of this model,  and the [$Z_t$,$\epsilon_t$] are Gaussian noise.
+
+_*8) Code an R function returning a Gaussian sample of this DLM with inputs :
+  the sample length, and the parameters $\phi$, $\sigma$, $a$ and $cR$, where
+  $cR$ is a matrix such that $cR^T\,cR=R$. The initial value of the state
+  variable will be drawn according to the stationary distribution. Based on a
+  simulated $2^{10}$ bivariate sample, with the parameters $\phi=.5$, $\sigma=1$,
+  $a=.5$ and $R$ equal to the identity matrix, perform a spectral analysis
+  similar to that performed on the log volatility data.  *_
+
+
+
+
+
+```{r, eval=TRUE}
+
+set.seed(1) 
+n <- 2**10 
+nbpl <- 2**6 
+# std var of accelaration 
+sig <- 1 
+# std var of obs. noise 
+sigo <- 1 
+# initial position, phi matrix 
+x <- as.matrix(rnorm(1,sd=sig)) 
+phi <- 0.5 
+a<- 0.5 
+
+  
+# Generate random accelaration 
+acc <- matrix(rnorm(n,sd=sig),nrow=1) 
+
+# Generate state variables 
+for (k in 1:n)
+{ 
+   x <- cbind(x, phi*x[,k]+acc[,k]) 
+}
+
+# Generate observation variables 
+vect1 <- a*x 
+vect1 <- rbind(x,vect1) 
+length((vect1)) 
+length(rnorm(n+1,sd=sigo)) 
+y <- vect1+ matrix(rnorm(2*(n+1),sd=sigo),nrow=2) 
+xlimites <- c(min(c(x[1,1:nbpl+1],y[1,1:nbpl]))-1, max(c(x[1,1:nbpl+1],y[1,1:nbpl]))+1)
+plot(x[1,2:nbpl+1], pch='+',type='o',col=2,asp=1, xaxt='n',yaxt='n', main='State variables (positions) and observations')
+lines(y[1,1:nbpl], pch='*', type='o',col=1) 
+lines(y[2,1:nbpl], pch='-', type='o',col=3) 
+legend("topleft", c(expression(paste('State var.', X[t],sep=' ')), expression(paste('Obs. var.', Y[t],sep=' '))), col=c(2,1), text.col='black', lty=1, pch=c('+','*')) 
+```
+```{r, eval=TRUE}
+par(mfrow=c(2,1))
+acf (y[1,1:nbpl])
+acf (y[2,1:nbpl])
+```
+
+```{r, eval=TRUE}
+library("GeneCycle")
+
+
+N = length(y[1,1:nbpl])
+I_2 = abs(fft(y[1,1:nbpl])/sqrt(N))^2
+## Scale periodogram
+P = (4/N) * I_2  ## scaled periodogram
+f = (0:floor(N-1))/N
+plot(f, I_2,log='y',type ='l',xlab = "frequency",  ylab = "Periodogram",main="Periodogram Y1")
+
+```
+```{r, eval=TRUE}
+library("GeneCycle")
+
+
+N = length(y[2,1:nbpl])
+I_2 = abs(fft(y[2,1:nbpl])/sqrt(N))^2
+## Scale periodogram
+P = (4/N) * I_2  ## scaled periodogram
+f = (0:floor(N-1))/N
+plot(f, I_2,log='y',type ='l',xlab = "frequency",  ylab = "Periodogram",main="Periodogram Y2")
+
+```
+
+
+
+
+
+
+
+# Fitting the model #
+
+The previous analysis supports the idea of using the proposed DLM for the *centered* log volatility data.
+We will relay on the following R package to perform computations related to the Kalman algorithm. 
+
+```{r, eval=FALSE} 
+require(astsa) 
+``` 
+
+We will mainly use the command
+*Kfilter0()* in this package.  The inputs of *Kfilter0()* include the DLM
+parameters $A$, $\mu_0$, $\Sigma_0$, $\Phi$, $cQ$ and $cR$.  The notational
+convention for these parameters is given by writing the state equation and the
+observation equation as 
+
+\begin{align*} 
+X_t &= \Phi\, X_{t-1} + W_t\;,\\ 
+Y_t &= A\, X_t + V_t\;, 
+\end{align*} 
+where $X_0 \sim \mathcal{N}(\mu_0, \Sigma_0)$, $W_t$ are
+iid $\mathcal{N}(0,cQ^T cQ)$, and $V_t$ are iid $\mathcal{N}(0,cR^T cR)$.
+
+The other inputs are the data *y* and the number of observations *num*
+(corresponding to the rows of *y*).
+
+
+**9) Code an R function which returns $A$, $\mu_0$, $\Sigma_0$, $\Phi$ and $cQ$ of
+the DLM of Question 7) from the inputs $\phi$, $\sigma$ and $a$. (Note that
+$cR$ is the same.) Using *Kfilter0()*, code a funtion *llike()*, whose input is
+a vector *para* that contains the parameters $\phi$, $\sigma$, $a$ and $cR$,
+and which returns the corresponding negated log likelihood. The observations
+used to compute this likelihood needs to be called through an external
+variable, say *yest*.**
+
+The correspondance between *para* and the parameters $\phi$, $\sigma$, $a$ and
+$cR$ can be done as follows
+
+```{r, eval=FALSE} 
+a <- para[1] 
+phi <- para[3] 
+sigma <- para[4] 
+cR <- matrix(para[4:7],nrow=2,ncol=2) 
+
+```
+
+
+```{r, eval=TRUE} 
+parameters <-function(phi,sigma,a){
+  A = matrix(c(1,a),2,1)
+  mu_0 = 0
+  sigma_0 = sigma/(1- phi**2)
+  Phi = matrix(phi,1,1)
+  cQ = matrix(sigma,1,1)
+    
+  return(list("A"=A, "mu_0" = mu_0, "sigma_0"= sigma_0, "Phi"= Phi, "cQ" = cQ))
+  
+  
+}
+
+yest <- t(y)
+num <- length(yest)/2
+
+llike <-function(para){
+
+    a <- para[1] 
+    phi <- para[2] 
+    sigma <- para[3] 
+    cR <- matrix(para[4:7],nrow=2,ncol=2) 
+    parameters_in <- parameters(phi,sigma,a)
+    A <- parameters_in$A
+    mu_0 <- parameters_in$mu_0
+    sigma_0 <- parameters_in$sigma_0
+    Phi <- parameters_in$Phi
+    cQ <- parameters_in$cQ
+    
+   return(Kfilter0(num,yest,A,mu_0,sigma_0,Phi,cQ,cR)$like)
+}
+  
+ 
+
+
+```
+
+```{r,eval=TRUE}
+require(astsa) 
+``` 
+
+Here *optim()* uses the iterative "BFGS" algorithm and starts from the initial parameter *init.par*. 
+The output *est* contains the resulting locally minimizing parameter *est$par*.
+
+
+_*10) Test the previous method on the simulated data of question 8). Use an increasing number of observations, from a sample size $2^6$ to $2^{10}$. Plot the evolution of the estimated $a$ as a function of the sample size, and do the same for $phi$. *_ [Comment: iterative algorithms can be sensitive to the initial parameter. When the true parameters of the data is known, it is possible to set *init.par* to the true parameters. However it is interesting to compare the output when starting from different initial parameters.]
+
+
+```{r, eval=TRUE} 
+Gaussian <- function(phi, sigma, a, cR, N){
+  Z <- sigma * rnorm(N)
+  epsilon <- matrix(rnorm(N*2),2)
+  X0 <- rnorm(1) * (sigma/ (1 - phi**2))
+  Xt <- X0
+  X <- rep(0,N)
+  Y <- matrix(0,2,N)
+  for (t in 1:(N-1)){
+    #print(epsilon[,t])
+    #print(cR)
+    Y[,t] <- Xt*c(1,a) + cR %*% epsilon[,t]
+    X[t] <- Xt
+    Xt <- phi * Xt + Z[t]
+  }
+  Y[N] <- c(1,a)*Xt + cR %*% epsilon[,N]
+  X[t] <- Xt
+  return(list('X' = X, 'Y' =Y))
+}
+
+phi = 0.5
+sigma = 1.0
+a = 0.5
+cR = matrix(c(1,0,0,1),2,2)
+N = 2**10
+frequency <- 2*pi * (1/N) * (1:N)
+new_process <- Gaussian(phi,sigma,a,cR,N)$Y 
+
+parameters <-function(phi,sigma,a){
+  A = matrix(c(1,a),2,1)
+  mu_0 = 0
+  sigma_0 = sigma/(1- phi**2)
+  Phi = matrix(phi,1,1)
+  cQ = matrix(sigma,1,1)
+    
+  return(list("A"=A, "mu_0" = mu_0, "sigma_0"= sigma_0, "Phi"= Phi, "cQ" = cQ))
+  
+  
+}
+
+yest <- t(new_process)
+num <- length(yest)/2
+
+llike <-function(para){
+
+    a <- para[1] 
+    phi <- para[2] 
+    sigma <- para[3] 
+    cR <- matrix(para[4:7],nrow=2,ncol=2) 
+    parameters_in <- parameters(phi,sigma,a)
+    
+    A <- parameters_in$A
+    mu_0 <- parameters_in$mu_0
+    sigma_0 <- parameters_in$sigma_0
+    Phi <- parameters_in$Phi
+    cQ <- parameters_in$cQ
+    
+
+   return(Kfilter0(num,yest,A,mu_0,sigma_0,Phi,cQ,cR)$like)
+}
+  
+ 
+
+
+```
+
+```{r, eval=TRUE} 
+para = c(0.5,0.5,1,1,0,0,1)
+llh <- llike(para)
+```
+
+```{r, eval=TRUE} 
+est <- optim(para, llike, NULL, method="BFGS",hessian=TRUE, control=list(trace=1,REPORT=1))
+
+para2 = est$par
+```
+
+```{r, eval=TRUE} 
+yest <- t(y)
+num <- length(yest) / 2
+para = c(0.6,0.5,0.5,1,0,0,1)
+est <- optim(para, llike, NULL, method="BFGS", hessian=TRUE, control=list(trace=1,REPORT=1))
+
+```
+
+
+
+```{r, eval=TRUE} 
+para1 = est$par
+a_values = c(para1[1],para2[1])
+phi_values = c(para1[2],para2[2])
+range_sample_size = c(2**6,2**10)
+par(mfrow=c(2,1))
+plot(x=range_sample_size,y=a_values,xlab='sample size',ylab=' a ',type='l',col =2)
+plot(x=range_sample_size,y=phi_values,xlab='sample size',ylab=' phi ',type='l', col=4)
+```
+
+**11) Use the $2^{10}$ first samples of *vollog* to estimate the parametres of the DLM that best fits these data. Before fitting the model the data must be centered:**
+
+```{r, eval=TRUE}
+#coherency function
+coherency <-function(lambda_tab, sigma, a, R, phi) {
+  f <- ((sigma ** 2) / (2 * pi)) * (1/(1 + (phi ^ 2) + 2 * phi * cos(lambda_tab)))
+  f_2 <- f ** 2
+  b <- a**2
+  r1 <- R[1,1] / (2*pi)
+  r2 <- R[2,2] / (2*pi)
+  r3 <- R[1,2] / (2*pi)
+  Result <- (b * f_2 + 2* r3 * f + r3**2) / (b * f_2 + (r1 * b + r2) * f + r1 * r2)
+  return(sqrt(Result))
+}
+```
+
+```{r, eval=TRUE} 
+para = runif(7)
+vollog <- data.frame(FTSE=log(volsf$FTSE),SPX=log(volsf$SPX))
+vollog <- cbind(volsf[,'Date',drop=FALSE],vollog)
+
+yest <- vollog[1:2^10,-1]-colMeans(vollog[1:2^10,-1])
+num <- length(yest)
+est <- optim(para, llike, NULL, method = "SANN", hessian=FALSE, control=list(trace=1,REPORT=1))
+vol_par <- est$par
+
+frequency <- 2*pi * (1/N) * (1:N)
+a <- vol_par[1] 
+phi <- vol_par[2] 
+sigma <- vol_par[3] 
+cR <- matrix(vol_par[4:7],nrow=2,ncol=2) 
+C <- coherency(frequency,sigma,a,t(cR)%*% cR,phi)
+plot(x=frequency, y=C,xlab = 'Frequency', ylab = 'coherency value', type = "l", col=4)
+
+
+```
+
+
+**Compare the spectral densities and the coherency of the fitted model with the spectra obtained in Questions 3) and 5).**
+
+**12) Use the fitted parameters to compute one step ahead predictors of the log volatilities of FTSE and SPX given their past. **
+
+[Comment: the output of *Kfilter0()* contains one step ahead predictors of the state variable, called *xp*. It is then easy to deduce predictors of the observed variable using the matrix $A$.]
+
+## Tiebraker question ##
+
+**13) We derived predictors of the *log* volatility in Question 12). How should
+we deduce predictors of the volatility ?  Compare the prediction performance of
+these predictors with predictors obtained *individually* from each
+time series FTSE and SPX.**
